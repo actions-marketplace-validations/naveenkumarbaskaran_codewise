@@ -1,0 +1,144 @@
+name: "Codewise Review"
+description: "LLM-powered code review, security scanning, and more — as a GitHub Action"
+author: "Naveen Kumar Baskaran"
+
+branding:
+  icon: "eye"
+  color: "blue"
+
+inputs:
+  mode:
+    description: "What to run: review, security, or both"
+    required: false
+    default: "both"
+  model:
+    description: "LLM model to use (e.g., gpt-4o-mini, claude-sonnet-4-20250514)"
+    required: false
+    default: "gpt-4o-mini"
+  api_key:
+    description: "API key for the LLM provider"
+    required: true
+  fail_on:
+    description: "Fail the action if findings >= this severity (critical, high, medium, low, none)"
+    required: false
+    default: "high"
+  config_file:
+    description: "Path to .codewise.yaml config file"
+    required: false
+    default: ""
+  output_format:
+    description: "Output format: terminal, json, sarif, markdown"
+    required: false
+    default: "markdown"
+  extra_instructions:
+    description: "Additional instructions for the LLM reviewer"
+    required: false
+    default: ""
+  sarif_file:
+    description: "Path to write SARIF output (for GitHub Security tab)"
+    required: false
+    default: ""
+  enable_rules:
+    description: "Comma-separated rule packs to enable (e.g., python-best-practices,security-basics)"
+    required: false
+    default: ""
+
+outputs:
+  findings_count:
+    description: "Total number of findings"
+  critical_count:
+    description: "Number of critical findings"
+  high_count:
+    description: "Number of high severity findings"
+  score:
+    description: "Overall code quality score (0-100)"
+  risk_level:
+    description: "Security risk level"
+
+runs:
+  using: "composite"
+  steps:
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: "3.12"
+
+    - name: Install codewise
+      shell: bash
+      run: pip install codewise-ai
+
+    - name: Get PR diff
+      shell: bash
+      id: diff
+      run: |
+        if [ "${{ github.event_name }}" = "pull_request" ]; then
+          BASE="${{ github.event.pull_request.base.sha }}"
+          HEAD="${{ github.event.pull_request.head.sha }}"
+          echo "base=$BASE" >> $GITHUB_OUTPUT
+          echo "head=$HEAD" >> $GITHUB_OUTPUT
+          echo "mode=branch" >> $GITHUB_OUTPUT
+        else
+          echo "mode=commit" >> $GITHUB_OUTPUT
+          echo "commit=${{ github.sha }}" >> $GITHUB_OUTPUT
+        fi
+
+    - name: Run codewise review
+      shell: bash
+      if: inputs.mode == 'review' || inputs.mode == 'both'
+      env:
+        CODEWISE_API_KEY: ${{ inputs.api_key }}
+        CODEWISE_MODEL: ${{ inputs.model }}
+      run: |
+        ARGS="--format ${{ inputs.output_format }} --fail-on ${{ inputs.fail_on }}"
+        
+        if [ -n "${{ inputs.config_file }}" ]; then
+          ARGS="$ARGS --config ${{ inputs.config_file }}"
+        fi
+        
+        if [ -n "${{ inputs.extra_instructions }}" ]; then
+          export CODEWISE_EXTRA_INSTRUCTIONS="${{ inputs.extra_instructions }}"
+        fi
+        
+        if [ "${{ steps.diff.outputs.mode }}" = "branch" ]; then
+          codewise review --branch ${{ steps.diff.outputs.base }} $ARGS || true
+        else
+          codewise review --commit ${{ steps.diff.outputs.commit }} $ARGS || true
+        fi
+
+    - name: Run codewise security
+      shell: bash
+      if: inputs.mode == 'security' || inputs.mode == 'both'
+      env:
+        CODEWISE_API_KEY: ${{ inputs.api_key }}
+        CODEWISE_MODEL: ${{ inputs.model }}
+      run: |
+        ARGS="--format ${{ inputs.output_format }} --fail-on ${{ inputs.fail_on }}"
+        
+        if [ -n "${{ inputs.config_file }}" ]; then
+          ARGS="$ARGS --config ${{ inputs.config_file }}"
+        fi
+        
+        if [ "${{ steps.diff.outputs.mode }}" = "branch" ]; then
+          codewise security --branch ${{ steps.diff.outputs.base }} $ARGS || true
+        else
+          codewise security --commit ${{ steps.diff.outputs.commit }} $ARGS || true
+        fi
+
+    - name: Generate SARIF (if configured)
+      shell: bash
+      if: inputs.sarif_file != ''
+      env:
+        CODEWISE_API_KEY: ${{ inputs.api_key }}
+        CODEWISE_MODEL: ${{ inputs.model }}
+      run: |
+        if [ "${{ steps.diff.outputs.mode }}" = "branch" ]; then
+          codewise security --branch ${{ steps.diff.outputs.base }} --format sarif > ${{ inputs.sarif_file }}
+        else
+          codewise security --commit ${{ steps.diff.outputs.commit }} --format sarif > ${{ inputs.sarif_file }}
+        fi
+
+    - name: Upload SARIF
+      if: inputs.sarif_file != ''
+      uses: github/codeql-action/upload-sarif@v3
+      with:
+        sarif_file: ${{ inputs.sarif_file }}

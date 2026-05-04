@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="assets/banner.svg" alt="codewise banner" width="800"/>
+</p>
+
 # codewise
 
 **LLM-agnostic code review, security scanning, test generation, and documentation — as CLI, MCP server, GitHub Action, or git hook.**

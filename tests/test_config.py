@@ -5,7 +5,7 @@ from pathlib import Path
 
 import yaml
 
-from codewise.config import load_config, find_config_file, generate_default_config, _deep_merge
+from codewise.config import _deep_merge, generate_default_config, load_config
 
 
 def test_deep_merge():

@@ -14,7 +14,6 @@ from codewise.llm.provider import completion_json
 from codewise.models import (
     CodewiseConfig,
     FileChange,
-    SecurityCategory,
     SecurityFinding,
     SecurityResult,
     Severity,

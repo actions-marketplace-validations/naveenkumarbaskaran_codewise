@@ -119,6 +119,54 @@ def parse_diff(diff_text: str) -> list[FileChange]:
     return changes
 
 
+def _glob_match(path: str, pattern: str) -> bool:
+    """Match a path against a glob pattern with proper ** support.
+
+    Semantics:
+    - ``*`` matches any sequence of non-``/`` characters (single segment).
+    - ``**`` matches zero or more path segments (including separators).
+    - ``?`` matches any single non-``/`` character.
+    """
+    if "**" not in pattern:
+        return fnmatch.fnmatch(path, pattern)
+
+    # Split pattern and path into segments
+    pat_segments = pattern.replace("\\", "/").split("/")
+    path_segments = path.replace("\\", "/").split("/")
+
+    return _match_segments(path_segments, pat_segments)
+
+
+def _match_segments(path_segs: list[str], pat_segs: list[str]) -> bool:
+    """Recursively match path segments against pattern segments."""
+    pi = 0  # path index
+    gi = 0  # pattern (glob) index
+
+    while gi < len(pat_segs) and pi < len(path_segs):
+        if pat_segs[gi] == "**":
+            # ** can match zero or more segments
+            # If this is the last pattern segment, it matches everything remaining
+            if gi == len(pat_segs) - 1:
+                return True
+            # Try matching ** against 0, 1, 2, ... path segments
+            for skip in range(len(path_segs) - pi + 1):
+                if _match_segments(path_segs[pi + skip:], pat_segs[gi + 1:]):
+                    return True
+            return False
+        else:
+            # Match single segment using fnmatch
+            if not fnmatch.fnmatch(path_segs[pi], pat_segs[gi]):
+                return False
+            pi += 1
+            gi += 1
+
+    # Consume any trailing ** in pattern
+    while gi < len(pat_segs) and pat_segs[gi] == "**":
+        gi += 1
+
+    return pi == len(path_segs) and gi == len(pat_segs)
+
+
 def should_include(
     path: str,
     include_patterns: list[str],
@@ -129,12 +177,12 @@ def should_include(
     """Check if a file path matches include/exclude filters."""
     # Check excludes first
     for pattern in exclude_patterns:
-        if fnmatch.fnmatch(path, pattern):
+        if _glob_match(path, pattern):
             logger.debug("Excluded by pattern %s: %s", pattern, path)
             return False
 
     # Check includes
-    included = any(fnmatch.fnmatch(path, p) for p in include_patterns)
+    included = any(_glob_match(path, p) for p in include_patterns)
     if not included:
         return False
 

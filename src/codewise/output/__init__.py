@@ -1,9 +1,9 @@
 """Output formatters — render results to terminal, JSON, SARIF, or Markdown."""
 
-from codewise.output.terminal import TerminalFormatter
 from codewise.output.json_fmt import JsonFormatter
-from codewise.output.sarif_fmt import SarifFormatter
 from codewise.output.markdown_fmt import MarkdownFormatter
+from codewise.output.sarif_fmt import SarifFormatter
+from codewise.output.terminal import TerminalFormatter
 
 __all__ = ["TerminalFormatter", "JsonFormatter", "SarifFormatter", "MarkdownFormatter", "get_formatter"]
 

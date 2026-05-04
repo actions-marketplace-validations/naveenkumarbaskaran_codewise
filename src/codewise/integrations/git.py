@@ -14,7 +14,6 @@ import logging
 import os
 import stat
 import subprocess
-import sys
 from pathlib import Path
 
 from codewise.core.diff import parse_diff

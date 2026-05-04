@@ -53,7 +53,7 @@ from enum import Enum
 from pathlib import Path
 from typing import Any
 
-from codewise.models import CodewiseConfig, FileChange, ReviewFinding, Severity, ReviewCategory
+from codewise.models import FileChange, ReviewCategory, ReviewFinding, Severity
 
 logger = logging.getLogger("codewise.rules")
 

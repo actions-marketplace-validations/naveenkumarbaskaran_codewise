@@ -2,7 +2,6 @@
 
 from codewise.core.diff import detect_language, parse_diff, should_include
 
-
 SAMPLE_DIFF = """\
 diff --git a/main.py b/main.py
 index abc1234..def5678 100644
@@ -11,7 +10,7 @@ index abc1234..def5678 100644
 @@ -1,3 +1,4 @@
  import os
 +import sys
- 
+
  def hello():
 """
 
@@ -35,7 +34,7 @@ def test_parse_diff():
 
 def test_should_include():
     assert should_include("src/main.py", ["**/*"], ["**/*.lock"], None, None)
-    assert not should_include("package-lock.json", ["**/*"], ["**/*.lock"], None, None)
+    assert not should_include("poetry.lock", ["**/*"], ["**/*.lock"], None, None)
     assert not should_include("node_modules/foo.js", ["**/*"], ["**/node_modules/**"], None, None)
 
 

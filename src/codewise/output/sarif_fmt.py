@@ -7,7 +7,6 @@ from typing import Any
 
 from codewise.models import ReviewResult, SecurityResult, Severity
 
-
 # Severity → SARIF level mapping
 SARIF_LEVELS = {
     Severity.CRITICAL: "error",

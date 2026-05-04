@@ -9,20 +9,19 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
-from pathlib import Path
 
 logger = logging.getLogger("codewise.mcp")
 
 try:
     from mcp.server import Server
     from mcp.server.stdio import stdio_server
-    from mcp.types import Tool, TextContent
+    from mcp.types import TextContent, Tool
     MCP_AVAILABLE = True
 except ImportError:
     MCP_AVAILABLE = False
 
 
-def create_server() -> "Server":
+def create_server() -> Server:
     """Create and configure the MCP server with all codewise tools."""
     if not MCP_AVAILABLE:
         raise ImportError("mcp package not installed. Run: pip install codewise-ai[mcp]")
@@ -133,9 +132,9 @@ def create_server() -> "Server":
     return server
 
 
-async def _handle_review(args: dict) -> list["TextContent"]:
-    from codewise.core.reviewer import review_file, review_changes
+async def _handle_review(args: dict) -> list[TextContent]:
     from codewise.core.diff import parse_diff
+    from codewise.core.reviewer import review_changes, review_file
     from codewise.models import CodewiseConfig
 
     config = CodewiseConfig(
@@ -155,7 +154,7 @@ async def _handle_review(args: dict) -> list["TextContent"]:
     return [TextContent(type="text", text=json.dumps(result.model_dump(mode="json"), indent=2))]
 
 
-async def _handle_security(args: dict) -> list["TextContent"]:
+async def _handle_security(args: dict) -> list[TextContent]:
     from codewise.core.security import scan_file
     from codewise.models import CodewiseConfig
 
@@ -168,7 +167,7 @@ async def _handle_security(args: dict) -> list["TextContent"]:
     return [TextContent(type="text", text=json.dumps(result.model_dump(mode="json"), indent=2))]
 
 
-async def _handle_testgen(args: dict) -> list["TextContent"]:
+async def _handle_testgen(args: dict) -> list[TextContent]:
     from codewise.core.testgen import generate_tests
     from codewise.models import CodewiseConfig
 
@@ -184,7 +183,7 @@ async def _handle_testgen(args: dict) -> list["TextContent"]:
     return [TextContent(type="text", text=json.dumps(result.model_dump(mode="json"), indent=2))]
 
 
-async def _handle_docgen(args: dict) -> list["TextContent"]:
+async def _handle_docgen(args: dict) -> list[TextContent]:
     from codewise.core.docgen import generate_docs
     from codewise.models import CodewiseConfig
 
@@ -197,11 +196,11 @@ async def _handle_docgen(args: dict) -> list["TextContent"]:
     return [TextContent(type="text", text=json.dumps(result.model_dump(mode="json"), indent=2))]
 
 
-async def _handle_check_rules(args: dict) -> list["TextContent"]:
+async def _handle_check_rules(args: dict) -> list[TextContent]:
     from codewise.config import load_config
-    from codewise.rules import run_regex_rules
-    from codewise.models import FileChange
     from codewise.core.diff import detect_language
+    from codewise.models import FileChange
+    from codewise.rules import run_regex_rules
 
     _, rules = load_config(config_path=args.get("config_path"))
     file_path = args.get("file_path", "unknown.txt")
@@ -218,7 +217,7 @@ async def _handle_check_rules(args: dict) -> list["TextContent"]:
     )]
 
 
-async def _handle_list_packs(args: dict) -> list["TextContent"]:
+async def _handle_list_packs(args: dict) -> list[TextContent]:
     from codewise.rules import STANDARD_PACKS
     packs = {}
     for name, rules in STANDARD_PACKS.items():
@@ -240,10 +239,10 @@ def run_server(transport: str = "stdio", port: int = 3000) -> None:
         asyncio.run(_run())
     elif transport == "sse":
         try:
+            import uvicorn
             from mcp.server.sse import SseServerTransport
             from starlette.applications import Starlette
             from starlette.routing import Route
-            import uvicorn
 
             sse = SseServerTransport("/messages")
 

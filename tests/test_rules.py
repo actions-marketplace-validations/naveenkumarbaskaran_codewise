@@ -4,7 +4,6 @@ from codewise.models import FileChange, ReviewCategory, Severity
 from codewise.rules import (
     Rule,
     RuleType,
-    _dict_to_rule,
     _file_matches_with_braces,
     build_llm_rules_instruction,
     get_available_packs,

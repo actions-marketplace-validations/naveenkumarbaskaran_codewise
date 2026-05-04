@@ -1,7 +1,7 @@
 """Tests for git integration module."""
 
-import tempfile
 import subprocess
+import tempfile
 from pathlib import Path
 
 import pytest
@@ -9,9 +9,9 @@ import pytest
 from codewise.integrations.git import (
     GitError,
     get_repo_root,
+    hooks_status,
     install_hooks,
     uninstall_hooks,
-    hooks_status,
 )
 
 

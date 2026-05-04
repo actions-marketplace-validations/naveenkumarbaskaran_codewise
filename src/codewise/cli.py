@@ -97,8 +97,8 @@ def review(
         return
 
     # Run regex rules first (fast, no LLM)
-    from codewise.rules import run_regex_rules, build_llm_rules_instruction, summarize_rules
     from codewise.integrations.git import get_current_branch
+    from codewise.rules import build_llm_rules_instruction, run_regex_rules, summarize_rules
 
     branch = None
     try:
@@ -240,7 +240,7 @@ def rules(ctx: click.Context):
 @rules.command("list-packs")
 def rules_list_packs():
     """List available standard rule packs."""
-    from codewise.rules import get_available_packs, STANDARD_PACKS
+    from codewise.rules import STANDARD_PACKS, get_available_packs
 
     console.print("\n[bold]Available Rule Packs:[/bold]\n")
     for name, count in get_available_packs().items():
@@ -269,7 +269,7 @@ def rules_show(config_path, repo_root):
     for r in rules_list:
         if not r.enabled:
             continue
-        type_label = f"[cyan]regex[/cyan]" if r.rule_type.value == "regex" else f"[magenta]LLM[/magenta]"
+        type_label = "[cyan]regex[/cyan]" if r.rule_type.value == "regex" else "[magenta]LLM[/magenta]"
         console.print(f"  {type_label} [{r.severity.value}] [bold]{r.id}[/bold]: {r.message or r.llm_check or ''}")
 
 
@@ -280,9 +280,9 @@ def rules_show(config_path, repo_root):
 def rules_test(rule_id, file, config_path):
     """Test a specific rule against a file."""
     from codewise.config import load_config
-    from codewise.rules import run_regex_rules
-    from codewise.models import FileChange
     from codewise.core.diff import detect_language
+    from codewise.models import FileChange
+    from codewise.rules import run_regex_rules
 
     _, rules_list = load_config(config_path)
     target_rules = [r for r in rules_list if r.id == rule_id]
@@ -423,7 +423,6 @@ def _setup_logging(verbose: bool) -> None:
 def _load_config(config_path, repo_root=None, **overrides):
     """Load config with CLI overrides."""
     from codewise.config import load_config
-    from codewise.models import Severity
 
     # Clean None values from overrides
     clean = {k: v for k, v in overrides.items() if v is not None}
@@ -441,14 +440,14 @@ def _load_config(config_path, repo_root=None, **overrides):
 
 def _get_changes(staged, push, base_branch, commit, base, files, repo_root, config):
     """Get file changes based on CLI flags."""
+    from codewise.core.diff import detect_language
     from codewise.integrations.git import (
-        get_staged_diff,
-        get_push_diff,
+        get_all_changes,
         get_branch_diff,
         get_commit_diff,
-        get_all_changes,
+        get_push_diff,
+        get_staged_diff,
     )
-    from codewise.core.diff import detect_language, read_file_content
     from codewise.models import FileChange
 
     if files:

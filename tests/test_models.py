@@ -2,14 +2,12 @@
 
 from codewise.models import (
     CodewiseConfig,
-    DiffHunk,
     FileChange,
     ReviewCategory,
     ReviewFinding,
     ReviewResult,
     SecurityCategory,
     SecurityFinding,
-    SecurityResult,
     Severity,
 )
 

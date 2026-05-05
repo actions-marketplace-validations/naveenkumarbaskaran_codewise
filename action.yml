@@ -1,9 +1,9 @@
-name: "Codewise Review"
-description: "LLM-powered code review, security scanning, and more — as a GitHub Action"
+name: "Codewise — AI Code Review & Security"
+description: "LLM-powered code review and security scanning for PRs. Posts inline annotations, PR comments with findings, SARIF for GitHub Security tab. Works with any LLM: OpenAI, Anthropic, Gemini, Ollama."
 author: "Naveen Kumar Baskaran"
 
 branding:
-  icon: "eye"
+  icon: "shield"
   color: "blue"
 
 inputs:
@@ -12,52 +12,71 @@ inputs:
     required: false
     default: "both"
   model:
-    description: "LLM model to use (e.g., gpt-4o-mini, claude-sonnet-4-20250514)"
+    description: "LLM model to use (e.g., gpt-4o-mini, claude-sonnet-4-20250514, gemini/gemini-2.0-flash)"
     required: false
     default: "gpt-4o-mini"
   api_key:
     description: "API key for the LLM provider"
     required: true
   fail_on:
-    description: "Fail the action if findings >= this severity (critical, high, medium, low, none)"
+    description: "Fail the action if findings meet or exceed this severity (critical, high, medium, low, none)"
     required: false
     default: "high"
   config_file:
     description: "Path to .codewise.yaml config file"
     required: false
     default: ""
-  output_format:
-    description: "Output format: terminal, json, sarif, markdown"
-    required: false
-    default: "markdown"
   extra_instructions:
-    description: "Additional instructions for the LLM reviewer"
+    description: "Additional context or rules for the LLM reviewer"
     required: false
     default: ""
   sarif_file:
-    description: "Path to write SARIF output (for GitHub Security tab)"
+    description: "Path to write SARIF output (for GitHub Security tab integration)"
     required: false
     default: ""
   enable_rules:
     description: "Comma-separated rule packs to enable (e.g., python-best-practices,security-basics)"
     required: false
     default: ""
+  post_comment:
+    description: "Post findings as a PR comment (requires GITHUB_TOKEN with pull-requests: write)"
+    required: false
+    default: "true"
+  github_token:
+    description: "GitHub token for posting PR comments (defaults to github.token)"
+    required: false
+    default: ${{ github.token }}
 
 outputs:
   findings_count:
     description: "Total number of findings"
+    value: ${{ steps.results.outputs.findings_count }}
   critical_count:
-    description: "Number of critical findings"
+    description: "Number of critical severity findings"
+    value: ${{ steps.results.outputs.critical_count }}
   high_count:
     description: "Number of high severity findings"
+    value: ${{ steps.results.outputs.high_count }}
+  medium_count:
+    description: "Number of medium severity findings"
+    value: ${{ steps.results.outputs.medium_count }}
   score:
     description: "Overall code quality score (0-100)"
+    value: ${{ steps.results.outputs.score }}
   risk_level:
-    description: "Security risk level"
+    description: "Security risk level (critical, high, medium, low, info)"
+    value: ${{ steps.results.outputs.risk_level }}
+  review_json:
+    description: "Full review results as JSON"
+    value: ${{ steps.results.outputs.review_json }}
+  security_json:
+    description: "Full security results as JSON"
+    value: ${{ steps.results.outputs.security_json }}
 
 runs:
   using: "composite"
   steps:
+    # ── Setup ────────────────────────────────────────────────────
     - name: Set up Python
       uses: actions/setup-python@v5
       with:
@@ -65,76 +84,122 @@ runs:
 
     - name: Install codewise
       shell: bash
-      run: pip install codewise-ai
+      run: pip install --quiet codewise-ai
 
-    - name: Get PR diff
+    - name: Resolve diff target
       shell: bash
       id: diff
       run: |
         if [ "${{ github.event_name }}" = "pull_request" ]; then
-          BASE="${{ github.event.pull_request.base.sha }}"
-          HEAD="${{ github.event.pull_request.head.sha }}"
-          echo "base=$BASE" >> $GITHUB_OUTPUT
-          echo "head=$HEAD" >> $GITHUB_OUTPUT
-          echo "mode=branch" >> $GITHUB_OUTPUT
+          echo "base=${{ github.event.pull_request.base.sha }}" >> $GITHUB_OUTPUT
+          echo "head=${{ github.event.pull_request.head.sha }}" >> $GITHUB_OUTPUT
+          echo "is_pr=true" >> $GITHUB_OUTPUT
         else
-          echo "mode=commit" >> $GITHUB_OUTPUT
           echo "commit=${{ github.sha }}" >> $GITHUB_OUTPUT
+          echo "is_pr=false" >> $GITHUB_OUTPUT
         fi
 
-    - name: Run codewise review
+    # ── Run Review ───────────────────────────────────────────────
+    - name: Run code review
       shell: bash
       if: inputs.mode == 'review' || inputs.mode == 'both'
+      id: review
       env:
         CODEWISE_API_KEY: ${{ inputs.api_key }}
         CODEWISE_MODEL: ${{ inputs.model }}
+        CODEWISE_EXTRA_INSTRUCTIONS: ${{ inputs.extra_instructions }}
       run: |
-        ARGS="--format ${{ inputs.output_format }} --fail-on ${{ inputs.fail_on }}"
-        
+        ARGS="--format json"
         if [ -n "${{ inputs.config_file }}" ]; then
           ARGS="$ARGS --config ${{ inputs.config_file }}"
         fi
-        
-        if [ -n "${{ inputs.extra_instructions }}" ]; then
-          export CODEWISE_EXTRA_INSTRUCTIONS="${{ inputs.extra_instructions }}"
-        fi
-        
-        if [ "${{ steps.diff.outputs.mode }}" = "branch" ]; then
-          codewise review --branch ${{ steps.diff.outputs.base }} $ARGS || true
-        else
-          codewise review --commit ${{ steps.diff.outputs.commit }} $ARGS || true
+        if [ -n "${{ inputs.enable_rules }}" ]; then
+          ARGS="$ARGS --enable-rules ${{ inputs.enable_rules }}"
         fi
 
-    - name: Run codewise security
+        if [ "${{ steps.diff.outputs.is_pr }}" = "true" ]; then
+          codewise review --branch ${{ steps.diff.outputs.base }} $ARGS > /tmp/codewise-review.json 2>/tmp/codewise-review.log || true
+        else
+          codewise review --commit ${{ steps.diff.outputs.commit }} $ARGS > /tmp/codewise-review.json 2>/tmp/codewise-review.log || true
+        fi
+
+        # Emit inline annotations for each finding
+        if [ -f /tmp/codewise-review.json ]; then
+          python3 -c "
+        import json, sys
+        try:
+            data = json.load(open('/tmp/codewise-review.json'))
+        except:
+            sys.exit(0)
+        for f in data.get('findings', []):
+            sev = f.get('severity', 'info')
+            level = 'error' if sev in ('critical', 'high') else 'warning' if sev == 'medium' else 'notice'
+            path = f.get('file', '')
+            line = f.get('line', 1) or 1
+            title = f.get('title', 'Finding')
+            msg = f.get('description', '')
+            if f.get('suggestion'):
+                msg += ' | Suggestion: ' + f['suggestion']
+            print(f'::{level} file={path},line={line},title={title}::{msg}')
+        "
+        fi
+
+    # ── Run Security ─────────────────────────────────────────────
+    - name: Run security scan
       shell: bash
       if: inputs.mode == 'security' || inputs.mode == 'both'
+      id: security
       env:
         CODEWISE_API_KEY: ${{ inputs.api_key }}
         CODEWISE_MODEL: ${{ inputs.model }}
       run: |
-        ARGS="--format ${{ inputs.output_format }} --fail-on ${{ inputs.fail_on }}"
-        
+        ARGS="--format json"
         if [ -n "${{ inputs.config_file }}" ]; then
           ARGS="$ARGS --config ${{ inputs.config_file }}"
         fi
-        
-        if [ "${{ steps.diff.outputs.mode }}" = "branch" ]; then
-          codewise security --branch ${{ steps.diff.outputs.base }} $ARGS || true
+
+        if [ "${{ steps.diff.outputs.is_pr }}" = "true" ]; then
+          codewise security --branch ${{ steps.diff.outputs.base }} $ARGS > /tmp/codewise-security.json 2>/tmp/codewise-security.log || true
         else
-          codewise security --commit ${{ steps.diff.outputs.commit }} $ARGS || true
+          codewise security --commit ${{ steps.diff.outputs.commit }} $ARGS > /tmp/codewise-security.json 2>/tmp/codewise-security.log || true
         fi
 
-    - name: Generate SARIF (if configured)
+        # Emit inline annotations for security findings
+        if [ -f /tmp/codewise-security.json ]; then
+          python3 -c "
+        import json, sys
+        try:
+            data = json.load(open('/tmp/codewise-security.json'))
+        except:
+            sys.exit(0)
+        for f in data.get('findings', []):
+            sev = f.get('severity', 'info')
+            level = 'error' if sev in ('critical', 'high') else 'warning' if sev == 'medium' else 'notice'
+            path = f.get('file', '')
+            line = f.get('line', 1) or 1
+            cwe = f.get('cwe', '')
+            title = f.get('title', 'Security Finding')
+            if cwe:
+                title = f'{title} ({cwe})'
+            msg = f.get('description', '')
+            if f.get('recommendation'):
+                msg += ' | Fix: ' + f['recommendation']
+            print(f'::{level} file={path},line={line},title={title}::{msg}')
+        "
+        fi
+
+    # ── SARIF for GitHub Security Tab ────────────────────────────
+    - name: Generate SARIF
       shell: bash
       if: inputs.sarif_file != ''
       env:
         CODEWISE_API_KEY: ${{ inputs.api_key }}
         CODEWISE_MODEL: ${{ inputs.model }}
       run: |
-        if [ "${{ steps.diff.outputs.mode }}" = "branch" ]; then
-          codewise security --branch ${{ steps.diff.outputs.base }} --format sarif > ${{ inputs.sarif_file }}
+        if [ "${{ steps.diff.outputs.is_pr }}" = "true" ]; then
+          codewise security --branch ${{ steps.diff.outputs.base }} --format sarif > ${{ inputs.sarif_file }} 2>/dev/null || echo '{"runs":[]}' > ${{ inputs.sarif_file }}
         else
-          codewise security --commit ${{ steps.diff.outputs.commit }} --format sarif > ${{ inputs.sarif_file }}
+          codewise security --commit ${{ steps.diff.outputs.commit }} --format sarif > ${{ inputs.sarif_file }} 2>/dev/null || echo '{"runs":[]}' > ${{ inputs.sarif_file }}
         fi
 
     - name: Upload SARIF
@@ -142,3 +207,276 @@ runs:
       uses: github/codeql-action/upload-sarif@v3
       with:
         sarif_file: ${{ inputs.sarif_file }}
+
+    # ── Collect Results & Set Outputs ────────────────────────────
+    - name: Collect results
+      shell: bash
+      id: results
+      run: |
+        python3 << 'PYEOF'
+        import json, os
+
+        review = {}
+        security = {}
+        try:
+            with open("/tmp/codewise-review.json") as f:
+                review = json.load(f)
+        except:
+            pass
+        try:
+            with open("/tmp/codewise-security.json") as f:
+                security = json.load(f)
+        except:
+            pass
+
+        review_findings = review.get("findings", [])
+        security_findings = security.get("findings", [])
+        all_findings = review_findings + security_findings
+
+        counts = {"critical": 0, "high": 0, "medium": 0, "low": 0, "info": 0}
+        for f in all_findings:
+            sev = f.get("severity", "info")
+            counts[sev] = counts.get(sev, 0) + 1
+
+        score = review.get("score", 100) or 100
+        risk = security.get("risk_level", "info") or "info"
+
+        with open(os.environ["GITHUB_OUTPUT"], "a") as out:
+            out.write(f"findings_count={len(all_findings)}\n")
+            out.write(f"critical_count={counts['critical']}\n")
+            out.write(f"high_count={counts['high']}\n")
+            out.write(f"medium_count={counts['medium']}\n")
+            out.write(f"score={score}\n")
+            out.write(f"risk_level={risk}\n")
+            out.write(f"review_json={json.dumps(review)}\n")
+            out.write(f"security_json={json.dumps(security)}\n")
+
+        print(f"Total findings: {len(all_findings)}")
+        print(f"Score: {score} | Risk: {risk}")
+        print(f"Critical: {counts['critical']}, High: {counts['high']}, Medium: {counts['medium']}")
+        PYEOF
+
+    # ── Job Summary ──────────────────────────────────────────────
+    - name: Write job summary
+      shell: bash
+      run: |
+        python3 << 'PYEOF'
+        import json, os
+
+        review = {}
+        security = {}
+        try:
+            with open("/tmp/codewise-review.json") as f:
+                review = json.load(f)
+        except:
+            pass
+        try:
+            with open("/tmp/codewise-security.json") as f:
+                security = json.load(f)
+        except:
+            pass
+
+        rf = review.get("findings", [])
+        sf = security.get("findings", [])
+        score = review.get("score") or "—"
+        risk = security.get("risk_level", "info") or "info"
+        files_reviewed = review.get("files_reviewed", 0)
+        files_scanned = security.get("files_scanned", 0)
+
+        severity_emoji = {"critical": "🔴", "high": "🟠", "medium": "🟡", "low": "🔵", "info": "⚪"}
+
+        lines = []
+        lines.append("## 🔍 Codewise Analysis\n")
+
+        # Overview table
+        lines.append("| Metric | Value |")
+        lines.append("|--------|-------|")
+        lines.append(f"| Quality Score | **{score}**/100 |")
+        lines.append(f"| Security Risk | {severity_emoji.get(risk, '⚪')} **{risk.upper()}** |")
+        lines.append(f"| Review Findings | {len(rf)} |")
+        lines.append(f"| Security Findings | {len(sf)} |")
+        lines.append(f"| Files Analyzed | {max(files_reviewed, files_scanned)} |")
+        lines.append("")
+
+        # Review findings table
+        if rf:
+            lines.append("### 📝 Code Review Findings\n")
+            lines.append("| Severity | File | Line | Issue | Suggestion |")
+            lines.append("|----------|------|------|-------|------------|")
+            for f in rf[:25]:
+                sev = f.get("severity", "info")
+                emoji = severity_emoji.get(sev, "⚪")
+                path = f.get("file", "")
+                line = f.get("line", "—") or "—"
+                title = f.get("title", "")
+                suggestion = f.get("suggestion", "—") or "—"
+                lines.append(f"| {emoji} {sev} | `{path}` | {line} | {title} | {suggestion} |")
+            if len(rf) > 25:
+                lines.append(f"\n*... and {len(rf) - 25} more findings*\n")
+            lines.append("")
+
+        # Security findings table
+        if sf:
+            lines.append("### 🔒 Security Findings\n")
+            lines.append("| Severity | File | Line | Vulnerability | CWE | Fix |")
+            lines.append("|----------|------|------|--------------|-----|-----|")
+            for f in sf[:25]:
+                sev = f.get("severity", "info")
+                emoji = severity_emoji.get(sev, "⚪")
+                path = f.get("file", "")
+                line = f.get("line", "—") or "—"
+                title = f.get("title", "")
+                cwe = f.get("cwe", "—") or "—"
+                fix = f.get("recommendation", "—") or "—"
+                lines.append(f"| {emoji} {sev} | `{path}` | {line} | {title} | {cwe} | {fix} |")
+            if len(sf) > 25:
+                lines.append(f"\n*... and {len(sf) - 25} more findings*\n")
+            lines.append("")
+
+        if not rf and not sf:
+            lines.append("### ✅ No issues found — looking good!\n")
+
+        lines.append("---")
+        lines.append("*Powered by [codewise](https://github.com/naveenkumarbaskaran/codewise) — LLM-agnostic code analysis*")
+
+        summary = "\n".join(lines)
+        with open(os.environ["GITHUB_STEP_SUMMARY"], "a") as f:
+            f.write(summary)
+        PYEOF
+
+    # ── PR Comment ───────────────────────────────────────────────
+    - name: Post PR comment
+      shell: bash
+      if: steps.diff.outputs.is_pr == 'true' && inputs.post_comment == 'true'
+      env:
+        GH_TOKEN: ${{ inputs.github_token }}
+      run: |
+        python3 << 'PYEOF'
+        import json, os, subprocess
+
+        review = {}
+        security = {}
+        try:
+            with open("/tmp/codewise-review.json") as f:
+                review = json.load(f)
+        except:
+            pass
+        try:
+            with open("/tmp/codewise-security.json") as f:
+                security = json.load(f)
+        except:
+            pass
+
+        rf = review.get("findings", [])
+        sf = security.get("findings", [])
+        score = review.get("score") or "—"
+        risk = security.get("risk_level", "info") or "info"
+
+        severity_emoji = {"critical": "🔴", "high": "🟠", "medium": "🟡", "low": "🔵", "info": "⚪"}
+
+        lines = []
+        lines.append("## 🔍 Codewise Review\n")
+
+        # Compact summary
+        total = len(rf) + len(sf)
+        if total == 0:
+            lines.append("✅ **No issues found** — this PR looks good!\n")
+        else:
+            counts = {}
+            for f in rf + sf:
+                s = f.get("severity", "info")
+                counts[s] = counts.get(s, 0) + 1
+            badges = " ".join(f"{severity_emoji.get(k,'⚪')} {v} {k}" for k, v in sorted(counts.items(), key=lambda x: ["critical","high","medium","low","info"].index(x[0])) if v > 0)
+            lines.append(f"**{total} finding(s):** {badges}")
+            if score != "—":
+                lines.append(f" | Quality: **{score}**/100")
+            lines.append("\n")
+
+        # Top findings (max 10 to keep comment concise)
+        if rf:
+            lines.append("<details><summary>📝 Code Review ({} findings)</summary>\n".format(len(rf)))
+            for f in rf[:10]:
+                sev = f.get("severity", "info")
+                emoji = severity_emoji.get(sev, "⚪")
+                path = f.get("file", "")
+                line = f.get("line", "")
+                title = f.get("title", "")
+                desc = f.get("description", "")
+                suggestion = f.get("suggestion", "")
+                loc = f"`{path}:{line}`" if line else f"`{path}`"
+                lines.append(f"- {emoji} **{title}** — {loc}")
+                lines.append(f"  {desc}")
+                if suggestion:
+                    lines.append(f"  💡 *{suggestion}*")
+                lines.append("")
+            if len(rf) > 10:
+                lines.append(f"*... {len(rf) - 10} more findings (see Actions log)*\n")
+            lines.append("</details>\n")
+
+        if sf:
+            lines.append("<details><summary>🔒 Security ({} findings)</summary>\n".format(len(sf)))
+            for f in sf[:10]:
+                sev = f.get("severity", "info")
+                emoji = severity_emoji.get(sev, "⚪")
+                path = f.get("file", "")
+                line = f.get("line", "")
+                title = f.get("title", "")
+                cwe = f.get("cwe", "")
+                fix = f.get("recommendation", "")
+                loc = f"`{path}:{line}`" if line else f"`{path}`"
+                cwe_badge = f" ({cwe})" if cwe else ""
+                lines.append(f"- {emoji} **{title}**{cwe_badge} — {loc}")
+                if fix:
+                    lines.append(f"  🛡️ *{fix}*")
+                lines.append("")
+            if len(sf) > 10:
+                lines.append(f"*... {len(sf) - 10} more findings (see Actions log)*\n")
+            lines.append("</details>\n")
+
+        lines.append("---")
+        lines.append("<sub>🤖 Powered by <a href='https://github.com/naveenkumarbaskaran/codewise'>codewise</a> — LLM-agnostic code analysis</sub>")
+
+        body = "\n".join(lines)
+
+        # Write to temp file and post via gh CLI
+        with open("/tmp/codewise-comment.md", "w") as f:
+            f.write(body)
+
+        pr_number = os.environ.get("PR_NUMBER", "")
+        repo = os.environ.get("GITHUB_REPOSITORY", "")
+        if pr_number and repo:
+            subprocess.run(["gh", "pr", "comment", pr_number, "--repo", repo, "--body-file", "/tmp/codewise-comment.md"], check=False)
+        PYEOF
+      env:
+        PR_NUMBER: ${{ github.event.pull_request.number }}
+
+    # ── Fail on Severity Threshold ───────────────────────────────
+    - name: Check fail threshold
+      shell: bash
+      if: inputs.fail_on != 'none'
+      run: |
+        python3 << 'PYEOF'
+        import json, sys
+
+        fail_on = "${{ inputs.fail_on }}"
+        levels = {"critical": 5, "high": 4, "medium": 3, "low": 2, "info": 1}
+        threshold = levels.get(fail_on, 0)
+
+        findings = []
+        for path in ["/tmp/codewise-review.json", "/tmp/codewise-security.json"]:
+            try:
+                with open(path) as f:
+                    data = json.load(f)
+                    findings.extend(data.get("findings", []))
+            except:
+                pass
+
+        blockers = [f for f in findings if levels.get(f.get("severity", "info"), 0) >= threshold]
+        if blockers:
+            print(f"::error::codewise: {len(blockers)} finding(s) at or above '{fail_on}' severity — failing the check")
+            for b in blockers[:5]:
+                print(f"  - [{b.get('severity')}] {b.get('file')}:{b.get('line','')} — {b.get('title','')}")
+            sys.exit(1)
+        else:
+            print(f"✅ No findings at or above '{fail_on}' threshold")
+        PYEOF

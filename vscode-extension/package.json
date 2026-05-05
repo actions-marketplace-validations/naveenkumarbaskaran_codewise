@@ -1,0 +1,187 @@
+{
+  "name": "codewise",
+  "displayName": "Codewise — AI Code Review & Security",
+  "description": "LLM-agnostic code review, security scanning, test generation, and documentation — powered by any LLM provider (OpenAI, Anthropic, Gemini, Ollama, and more).",
+  "version": "0.1.0",
+  "publisher": "naveenkumarbaskaran",
+  "icon": "assets/icon.png",
+  "engines": {
+    "vscode": "^1.85.0"
+  },
+  "license": "MIT",
+  "categories": [
+    "Linters",
+    "Testing",
+    "Other"
+  ],
+  "keywords": [
+    "code-review",
+    "security",
+    "ai",
+    "llm",
+    "test-generation",
+    "documentation",
+    "openai",
+    "anthropic",
+    "gemini",
+    "ollama",
+    "linter",
+    "code-quality"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/naveenkumarbaskaran/codewise"
+  },
+  "homepage": "https://github.com/naveenkumarbaskaran/codewise",
+  "bugs": {
+    "url": "https://github.com/naveenkumarbaskaran/codewise/issues"
+  },
+  "galleryBanner": {
+    "color": "#1a1a2e",
+    "theme": "dark"
+  },
+  "activationEvents": [],
+  "main": "./out/extension.js",
+  "contributes": {
+    "commands": [
+      {
+        "command": "codewise.reviewFile",
+        "title": "Codewise: Review Current File",
+        "icon": "$(search-fuzzy)"
+      },
+      {
+        "command": "codewise.reviewWorkspace",
+        "title": "Codewise: Review Uncommitted Changes",
+        "icon": "$(git-compare)"
+      },
+      {
+        "command": "codewise.reviewStaged",
+        "title": "Codewise: Review Staged Changes",
+        "icon": "$(git-commit)"
+      },
+      {
+        "command": "codewise.securityScan",
+        "title": "Codewise: Security Scan",
+        "icon": "$(shield)"
+      },
+      {
+        "command": "codewise.securityScanFile",
+        "title": "Codewise: Security Scan Current File",
+        "icon": "$(shield)"
+      },
+      {
+        "command": "codewise.generateTests",
+        "title": "Codewise: Generate Tests for Current File",
+        "icon": "$(beaker)"
+      },
+      {
+        "command": "codewise.generateDocs",
+        "title": "Codewise: Generate Docs for Current File",
+        "icon": "$(book)"
+      },
+      {
+        "command": "codewise.clearDiagnostics",
+        "title": "Codewise: Clear All Findings",
+        "icon": "$(clear-all)"
+      }
+    ],
+    "menus": {
+      "editor/title": [
+        {
+          "command": "codewise.reviewFile",
+          "when": "editorTextFocus",
+          "group": "navigation"
+        }
+      ],
+      "editor/context": [
+        {
+          "command": "codewise.reviewFile",
+          "group": "codewise@1"
+        },
+        {
+          "command": "codewise.securityScanFile",
+          "group": "codewise@2"
+        },
+        {
+          "command": "codewise.generateTests",
+          "group": "codewise@3"
+        },
+        {
+          "command": "codewise.generateDocs",
+          "group": "codewise@4"
+        }
+      ]
+    },
+    "configuration": {
+      "title": "Codewise",
+      "properties": {
+        "codewise.pythonPath": {
+          "type": "string",
+          "default": "",
+          "description": "Path to the Python interpreter where codewise-ai is installed. Leave empty to use system default."
+        },
+        "codewise.model": {
+          "type": "string",
+          "default": "gpt-4o-mini",
+          "description": "LLM model to use (e.g., gpt-4o-mini, claude-sonnet-4-20250514, gemini/gemini-2.0-flash, ollama/llama3)."
+        },
+        "codewise.apiKey": {
+          "type": "string",
+          "default": "",
+          "description": "API key for the LLM provider. Can also be set via environment variable.",
+          "scope": "machine-overridable"
+        },
+        "codewise.failOn": {
+          "type": "string",
+          "default": "none",
+          "enum": ["critical", "high", "medium", "low", "info", "none"],
+          "description": "Minimum severity level to mark as errors (red squiggly). Below this level, findings appear as warnings."
+        },
+        "codewise.reviewOnSave": {
+          "type": "boolean",
+          "default": false,
+          "description": "Automatically review files on save."
+        },
+        "codewise.testFramework": {
+          "type": "string",
+          "default": "pytest",
+          "enum": ["pytest", "jest", "vitest", "go", "junit"],
+          "description": "Test framework for test generation."
+        },
+        "codewise.extraArgs": {
+          "type": "string",
+          "default": "",
+          "description": "Extra CLI arguments to pass to codewise commands."
+        }
+      }
+    },
+    "keybindings": [
+      {
+        "command": "codewise.reviewFile",
+        "key": "ctrl+shift+r",
+        "mac": "cmd+shift+r",
+        "when": "editorTextFocus"
+      },
+      {
+        "command": "codewise.securityScanFile",
+        "key": "ctrl+shift+s",
+        "mac": "cmd+shift+s",
+        "when": "editorTextFocus"
+      }
+    ]
+  },
+  "scripts": {
+    "vscode:prepublish": "npm run compile",
+    "compile": "tsc -p ./",
+    "watch": "tsc -watch -p ./",
+    "lint": "eslint src --ext ts",
+    "package": "vsce package",
+    "publish": "vsce publish"
+  },
+  "devDependencies": {
+    "@types/vscode": "^1.85.0",
+    "@types/node": "^20.0.0",
+    "typescript": "^5.3.0",
+    "@vscode/vsce": "^3.0.0"
+  }
+}

@@ -1,5 +1,5 @@
 name: "Codewise — AI Code Review & Security"
-description: "LLM-powered code review and security scanning for PRs. Posts inline annotations, PR comments with findings, SARIF for GitHub Security tab. Works with any LLM: OpenAI, Anthropic, Gemini, Ollama."
+description: "LLM-powered code review and security scanning for PRs. Inline annotations, PR comments, SARIF, any LLM provider."
 author: "Naveen Kumar Baskaran"
 
 branding:

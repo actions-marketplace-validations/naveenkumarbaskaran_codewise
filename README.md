@@ -247,7 +247,7 @@ jobs:
         with:
           fetch-depth: 0
 
-      - uses: naveenkumarbaskaran/codewise@v0.1.0
+      - uses: naveenkumarbaskaran/codewise@v2.0.0
         with:
           api_key: ${{ secrets.OPENAI_API_KEY }}
           mode: both          # review + security
@@ -256,7 +256,7 @@ jobs:
           output_format: markdown
 
       # Optional: upload SARIF to GitHub Security tab
-      - uses: naveenkumarbaskaran/codewise@v0.1.0
+      - uses: naveenkumarbaskaran/codewise@v2.0.0
         with:
           api_key: ${{ secrets.OPENAI_API_KEY }}
           mode: security
@@ -273,7 +273,7 @@ jobs:
 # .pre-commit-config.yaml
 repos:
   - repo: https://github.com/naveenkumarbaskaran/codewise
-    rev: v0.1.0
+    rev: v2.0.0
     hooks:
       - id: codewise-review
       - id: codewise-security
